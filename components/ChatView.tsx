@@ -12,20 +12,26 @@ import {
   Mic, 
   Scale, 
   BookOpen, 
-  CheckCircle2,
-  Clock,
-  RotateCcw,
-  HelpCircle,
-  Briefcase,
-  AlertCircle,
-  Square
+  CheckCircle2, 
+  Clock, 
+  RotateCcw, 
+  HelpCircle, 
+  Briefcase, 
+  AlertCircle, 
+  Square, 
+  Phone,
+  Sliders,
+  Database
 } from 'lucide-react';
-import { Message } from '../types';
-import { chatWithLegalAI } from '../services/geminiService';
+import { Message, CallTurn } from '../types';
+import { chatWithLegalAI, chatWithLegalAIWithRag } from '../services/geminiService';
 import { speakArabic, stopArabicSpeech, setSpeechRate } from '../services/speechService';
 import { FAQS, MINISTERIAL_DECREES_HIGHLIGHTS } from '../constants';
 import { LegalMessageRenderer } from './LegalMessageRenderer';
 import { MinistryLogo } from './MinistryLogo';
+import { VoiceCallModal } from './VoiceCallModal';
+import { HybridRagInspector } from './HybridRagInspector';
+import { HybridRagLabModal } from './HybridRagLabModal';
 
 export const ChatView: React.FC = () => {
   // Chat starts completely clean and dynamic (not fixed)
@@ -37,6 +43,9 @@ export const ChatView: React.FC = () => {
   const [speechRate, setSpeechRateState] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'faqs' | 'decrees'>('faqs');
   const [clearToast, setClearToast] = useState(false);
+  const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
+  const [isRagLabOpen, setIsRagLabOpen] = useState(false);
+  const [labInitialQuery, setLabInitialQuery] = useState('');
   
   // Continuous Speech Recognition States & Refs
   const [isMicActive, setIsMicActive] = useState(false);
@@ -65,6 +74,33 @@ export const ChatView: React.FC = () => {
       }
     };
   }, []);
+
+  // Handle closing of Voice Call and document it in chat
+  const handleVoiceCallClose = (transcript: CallTurn[], duration: string) => {
+    setIsVoiceCallOpen(false);
+    if (!transcript || transcript.length === 0) return;
+
+    let callSummary = `**محضر استشارة مكالمة صوتية مباشرة - وزارة العمل**\n**مدة المكالمة:** ${duration}\n\n`;
+    
+    transcript.forEach((turn) => {
+      if (turn.role === 'user') {
+        callSummary += `**سؤال المواطن (صوتياً):** ${turn.text}\n\n`;
+      } else {
+        callSummary += `**إفادة المستشار القانوني:**\n${turn.text}\n\n`;
+      }
+    });
+
+    const callMessage: Message = {
+      id: `call-${Date.now()}`,
+      role: 'model',
+      text: callSummary.trim(),
+      timestamp: new Date().toISOString(),
+      source: 'voice_call',
+      callDuration: duration
+    };
+
+    setMessages(prev => [...prev, callMessage]);
+  };
 
   // Clear chat completely without any blocking confirm dialogs
   const handleClearChat = () => {
@@ -106,14 +142,15 @@ export const ChatView: React.FC = () => {
 
     try {
       const history = messages.map(m => ({ role: m.role, text: m.text }));
-      const aiResponse = await chatWithLegalAI(textToSend, history);
+      const aiResult = await chatWithLegalAIWithRag(textToSend, history);
 
       const modelMessage: Message = {
         id: `msg-${Date.now()}-model`,
         role: 'model',
-        text: aiResponse || 'وفقاً لصريح نصوص قانون العمل رقم 14 لسنة 2025، يرجى التوجه لمكتب العمل المختص.',
+        text: aiResult.text || 'وفقاً لصريح نصوص قانون العمل رقم 14 لسنة 2025، يرجى التوجه لمكتب العمل المختص.',
         timestamp: new Date().toISOString(),
-        source: 'text'
+        source: 'text',
+        ragResult: aiResult.ragResult
       };
 
       setMessages(prev => [...prev, modelMessage]);
@@ -359,7 +396,21 @@ export const ChatView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsVoiceCallOpen(true)}
+              className="bg-gradient-to-l from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-black px-4 py-3 rounded-2xl border-2 border-emerald-400/80 shadow-lg flex items-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer text-xs sm:text-sm"
+              title="بدء مكالمة هاتفية تفاعلية مباشرة مع المستشار القانوني"
+            >
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+              </span>
+              <Phone className="w-4 h-4" />
+              <span>مكالمة صوتية مباشرة</span>
+            </button>
+
             <div className="bg-black/30 backdrop-blur-md px-4 py-3 rounded-2xl border border-[#C5A059]/40 text-center">
               <span className="block text-xs font-bold text-[#E5C378]">الخط الساخن للوزارة</span>
               <span className="block text-lg font-black text-white font-mono">19468</span>
@@ -540,7 +591,32 @@ export const ChatView: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Hybrid RAG Lab Trigger Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setLabInitialQuery(input || 'ما هي شروط إنشاء دور الحضانة ونسب اشتراك العاملة بالقرار 48 لسنة 2026؟');
+                  setIsRagLabOpen(true);
+                }}
+                className="px-3 py-2 text-indigo-900 hover:text-white hover:bg-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl transition-all text-xs flex items-center gap-1.5 font-black shadow-2xs cursor-pointer active:scale-95"
+                title="فتح مختبر ومحلل محرك الاسترجاع الهجين RAG"
+              >
+                <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+                <span>مختبر RAG الهجين</span>
+              </button>
+
+              {/* Voice Call Button */}
+              <button
+                type="button"
+                onClick={() => setIsVoiceCallOpen(true)}
+                className="px-3 py-2 text-emerald-800 hover:text-white hover:bg-emerald-700 bg-emerald-50 border border-emerald-300 rounded-xl transition-all text-xs flex items-center gap-1.5 font-black shadow-2xs cursor-pointer active:scale-95"
+                title="بدء مكالمة صوتية تفاعلية مباشرة"
+              >
+                <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                <span>مكالمة صوتية</span>
+              </button>
+
               {messages.length > 0 && (
                 <button
                   onClick={handlePrintConsultation}
@@ -600,6 +676,31 @@ export const ChatView: React.FC = () => {
                     </button>
                   ))}
                 </div>
+
+                {/* Direct Voice Call Banner in Empty State */}
+                <div className="w-full bg-gradient-to-r from-emerald-950/10 via-emerald-900/15 to-emerald-950/10 border-2 border-dashed border-emerald-500/40 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-right">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md shrink-0">
+                      <Phone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                        ترغب في استشارة هاتفية تفاعلية مباشرة بالصوت؟
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        تحدث بالصوت مع المستشار القانوني الذكي واستمع للرد الصوتي الفوري مع التوثيق التلقائي.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsVoiceCallOpen(true)}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer shrink-0"
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>ابدأ المكالمة الصوتية الآن</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -632,6 +733,12 @@ export const ChatView: React.FC = () => {
                         <span className={`text-xs font-black ${isUser ? 'text-[#FFEAA7]' : 'text-[#700000]'}`}>
                           {isUser ? 'المستفسر' : 'المستشار القانوني - وزارة العمل'}
                         </span>
+                        {msg.source === 'voice_call' && (
+                          <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md text-[10px] font-black">
+                            <Phone className="w-3 h-3 text-emerald-700" />
+                            <span>مكالمة هاتفية موثقة ({msg.callDuration || 'مباشرة'})</span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Message Action Controls */}
@@ -722,6 +829,17 @@ export const ChatView: React.FC = () => {
                     <div className="pt-1">
                       <LegalMessageRenderer content={msg.text} isModel={!isUser} />
                     </div>
+
+                    {/* Production Hybrid RAG Deep Inspector */}
+                    {!isUser && msg.ragResult && (
+                      <HybridRagInspector 
+                        ragResult={msg.ragResult} 
+                        onOpenLab={() => {
+                          setLabInitialQuery(msg.ragResult?.query || '');
+                          setIsRagLabOpen(true);
+                        }}
+                      />
+                    )}
 
                     {/* Footer / Timestamp */}
                     <div className={`text-[11px] mt-4 pt-2 border-t flex items-center justify-between font-medium ${
@@ -875,6 +993,19 @@ export const ChatView: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Interactive Voice Call Modal */}
+      <VoiceCallModal 
+        isOpen={isVoiceCallOpen} 
+        onClose={handleVoiceCallClose} 
+      />
+
+      {/* Production Hybrid RAG Laboratory & Inspector Modal */}
+      <HybridRagLabModal
+        isOpen={isRagLabOpen}
+        onClose={() => setIsRagLabOpen(false)}
+        initialQuery={labInitialQuery}
+      />
 
     </div>
   );

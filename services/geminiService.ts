@@ -1,5 +1,6 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { LAW_CONTEXT, FAQS, MINISTERIAL_DECREES_HIGHLIGHTS } from "../constants";
+import { hybridRagEngine, RagSearchResult } from "./rag";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY || '' });
 
@@ -405,7 +406,13 @@ export const synthesizeLegalFallback = (query: string, isVoice = false): string 
 يرجى التوجه إلى **مكتب العمل المختص** التابع له مقر المنشأة أو تقديم طلب لـ **لجنة التسوية الودية بالمديرية** وفقاً للمادة (149) لسرعة الفصل خلال 21 يوماً، كما يمكنكم الاتصال بالخط الساخن الرسمي لوزارة العمل: **19468**.`;
 };
 
-export const chatWithLegalAI = async (message: string, history: { role: 'user' | 'model', text: string }[]): Promise<string> => {
+export const chatWithLegalAIWithRag = async (
+  message: string, 
+  history: { role: 'user' | 'model', text: string }[]
+): Promise<{ text: string; ragResult: RagSearchResult }> => {
+  // 1. Production Hybrid RAG Retrieval (BM25 + Semantic Cosine + Metadata Boost + Rerank)
+  const ragResult = await hybridRagEngine.retrieve(message, { topK: 3, alpha: 0.45 });
+
   const contents = history.map(h => ({
     role: h.role,
     parts: [{ text: h.text }]
@@ -416,7 +423,10 @@ export const chatWithLegalAI = async (message: string, history: { role: 'user' |
   const systemInstruction = `أنت المستشار القانوني الرقمي الرسمي لوزارة العمل بجمهورية مصر العربية.
 مرجعك الإلزامي والوحيد هو نصوص قانون العمل المصري الجديد رقم 14 لسنة 2025 وحزمة القرارات الوزارية التنفيذية الصادرة عن معالي وزير العمل بالوقائع المصرية (قرارات 2025 وقرارات 2026).
 
-السياق القانوني المعتمد للتشريعات والقرارات:
+سياق الاسترجاع الهجين المستخرج بدقة فائقة من قاعدة المعرفة التشريعية (Production Hybrid RAG):
+${ragResult.assembledContext}
+
+السياق التشريعي العام المعتمد:
 ${LAW_CONTEXT}
 
 طريقة صياغة وعرض الإجابة (التزم بهذا النموذج الإلزامي دائماً):
@@ -439,14 +449,22 @@ ${LAW_CONTEXT}
   try {
     const aiText = await executeWithModelFallback(contents, systemInstruction, 0.25);
     if (aiText) {
-      return aiText;
+      return { text: aiText, ragResult };
     }
   } catch (err) {
-    console.warn('[chatWithLegalAI] Exception caught during model execution:', err);
+    console.warn('[chatWithLegalAIWithRag] Exception caught during model execution:', err);
   }
 
   // Graceful fallback to verified sovereign statutory knowledge
-  return synthesizeLegalFallback(message, false);
+  return { 
+    text: synthesizeLegalFallback(message, false),
+    ragResult 
+  };
+};
+
+export const chatWithLegalAI = async (message: string, history: { role: 'user' | 'model', text: string }[]): Promise<string> => {
+  const result = await chatWithLegalAIWithRag(message, history);
+  return result.text;
 };
 
 export const voiceConsultWithLegalAI = async (spokenInquiry: string, callHistory: { role: 'user' | 'model', text: string }[]): Promise<string> => {

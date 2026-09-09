@@ -1,4 +1,6 @@
 
+import { RagSearchResult } from './services/rag/types';
+
 export type View = 'chat';
 
 export interface Message {
@@ -9,6 +11,7 @@ export interface Message {
   source?: 'text' | 'voice_call';
   callDuration?: string;
   legalArticles?: string[];
+  ragResult?: RagSearchResult;
 }
 
 export interface CallTurn {

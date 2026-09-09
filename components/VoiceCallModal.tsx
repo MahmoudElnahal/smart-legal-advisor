@@ -12,7 +12,8 @@ import {
   Radio,
   FileCheck,
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  X
 } from 'lucide-react';
 import { CallTurn } from '../types';
 import { voiceConsultWithLegalAI } from '../services/geminiService';
@@ -378,6 +379,14 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({ isOpen, onClose 
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>مشفرة وموثقة</span>
             </div>
+
+            <button
+              onClick={handleEndCall}
+              className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="إغلاق المكالمة وتوثيقها"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
