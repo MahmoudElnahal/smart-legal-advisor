@@ -64,7 +64,7 @@ React 19 · TypeScript · Vite · Google Gemini (`@google/genai`) · Web Speech 
 
 ## Related
 
-[labor-law-chatbot](https://github.com/MahmoudElnahal/labor-law-chatbot) — the Python version: FastAPI RAG service over the full law text, with a retrieval evaluation set.
+[egyptian-labor-law-chatbot](https://github.com/MahmoudElnahal/egyptian-labor-law-chatbot) — the Python version: FastAPI RAG service over the full law text, with a retrieval evaluation set.
 
 ## Author
 
